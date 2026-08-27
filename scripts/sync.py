@@ -6,17 +6,21 @@ fixed list of Canvas courses and upserts them into a Notion database as
 rows, so the user can sort/filter/group them natively in Notion and track
 progress with a Status property that this script never overwrites.
 
+The "Last synced" heading at the top of the page always reflects the
+outcome of the most recent run: green on success, red if anything failed.
+
 Required environment variables:
     CANVAS_URL            e.g. https://canvas.nus.edu.sg
     CANVAS_TOKEN          Canvas API access token
     NOTION_TOKEN          Notion internal integration token
-    NOTION_PAGE_ID        The "NUS Deadlines" page ID (holds the "Last synced" line)
+    NOTION_PAGE_ID        The "NUS Deadlines" page ID (holds the "Last synced" heading)
     NOTION_DATA_SOURCE_ID The "Deadlines" database's data source ID
 """
 import os
 import sys
 import time
 import datetime
+import traceback
 import requests
 
 CANVAS_URL = os.environ["CANVAS_URL"].rstrip("/")
@@ -46,6 +50,8 @@ COURSES = {
 # "to do" group option "Not started" when the Status property was created;
 # renaming it via the API isn't supported, so this must match that exactly.
 DEFAULT_STATUS = "Not started"
+
+SGT = datetime.timezone(datetime.timedelta(hours=8))
 
 
 def canvas_get(path, params=None):
@@ -96,7 +102,6 @@ def fetch_deadlines(now):
                 "course": code,
                 "title": a.get("name") or "Untitled",
                 "date": due,
-                "points": a.get("points_possible"),
             })
     return deadlines
 
@@ -150,7 +155,6 @@ def build_properties(item, now, include_status):
         "Name": {"title": [{"text": {"content": item["title"]}}]},
         "Course": {"select": {"name": item["course"]}},
         "Due Date": {"date": {"start": item["date"]}},
-        "Points": {"number": item["points"]},
         "Urgency": {"select": {"name": urgency_label(item["date"], now)}},
         "Canvas ID": {"number": item["canvas_id"]},
     }
@@ -191,43 +195,73 @@ def sync_rows(deadlines, now):
     return created, updated, archived
 
 
-def update_last_synced(now):
-    sgt = now.astimezone(datetime.timezone(datetime.timedelta(hours=8)))
-    label = f"Last synced: {sgt.strftime('%a, %-d %b %Y, %-I:%M %p')} SGT"
+def set_status_heading(now, success, detail):
+    """Find the heading_3 "Last synced" block at the top of the page and
+    update it in place (color + text) rather than recreating it, so its
+    position on the page never moves."""
+    sgt_str = now.astimezone(SGT).strftime("%a, %-d %b %Y, %-I:%M %p")
+    if success:
+        text = f"✅ Last synced: {sgt_str} SGT"
+        color = "green_background"
+    else:
+        text = f"❌ Sync failed: {sgt_str} SGT — {detail}"
+        color = "red_background"
+
     data = notion_request("GET", f"/blocks/{NOTION_PAGE_ID}/children", params={"page_size": 50})
     target_block_id = None
     for block in data["results"]:
-        if block["type"] != "paragraph":
+        btype = block["type"]
+        if btype not in ("heading_1", "heading_2", "heading_3", "paragraph"):
             continue
-        texts = block["paragraph"].get("rich_text", [])
+        texts = block[btype].get("rich_text", [])
         joined = "".join(t.get("plain_text", "") for t in texts)
-        if joined.startswith("Last synced"):
+        if "sync" in joined.lower():
             target_block_id = block["id"]
+            target_type = btype
             break
 
-    body = {"paragraph": {"rich_text": [{"type": "text", "text": {"content": label}}]}}
-    if target_block_id:
+    body = {"heading_3": {"rich_text": [{"type": "text", "text": {"content": text}}], "color": color}}
+    if target_block_id and target_type == "heading_3":
         notion_request("PATCH", f"/blocks/{target_block_id}", json=body)
+    elif target_block_id:
+        # Block exists but isn't a heading_3 (e.g. leftover paragraph from an
+        # older version of this script) - block type can't be changed via
+        # PATCH, so replace it: delete then insert fresh at the top.
+        notion_request("DELETE", f"/blocks/{target_block_id}")
+        notion_request(
+            "PATCH", f"/blocks/{NOTION_PAGE_ID}/children",
+            json={"children": [{"object": "block", "type": "heading_3", **body}]},
+        )
     else:
         notion_request(
             "PATCH", f"/blocks/{NOTION_PAGE_ID}/children",
-            json={"children": [{"object": "block", "type": "paragraph", **body}]},
+            json={"children": [{"object": "block", "type": "heading_3", **body}]},
         )
 
 
 def main():
     now = datetime.datetime.now(datetime.timezone.utc)
-    deadlines = fetch_deadlines(now)
-    print(f"{len(deadlines)} outstanding deadlines found", file=sys.stderr)
+    try:
+        deadlines = fetch_deadlines(now)
+        print(f"{len(deadlines)} outstanding deadlines found", file=sys.stderr)
 
-    created, updated, archived = sync_rows(deadlines, now)
-    update_last_synced(now)
+        created, updated, archived = sync_rows(deadlines, now)
 
-    soon = [d for d in deadlines if urgency_label(d["date"], now) != "Upcoming"]
-    print(
-        f"Synced: {created} new, {updated} updated, {archived} archived (done/overdue). "
-        f"{len(deadlines)} outstanding total, {len(soon)} due within 3 days."
-    )
+        soon = [d for d in deadlines if urgency_label(d["date"], now) != "Upcoming"]
+        print(
+            f"Synced: {created} new, {updated} updated, {archived} archived (done/overdue). "
+            f"{len(deadlines)} outstanding total, {len(soon)} due within 3 days."
+        )
+    except Exception as e:
+        traceback.print_exc()
+        try:
+            set_status_heading(now, success=False, detail=str(e)[:200])
+        except Exception:
+            print("Additionally failed to update the status heading itself.", file=sys.stderr)
+            traceback.print_exc()
+        sys.exit(1)
+
+    set_status_heading(now, success=True, detail="")
 
 
 if __name__ == "__main__":

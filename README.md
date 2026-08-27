@@ -12,7 +12,9 @@ due) assignments from your Canvas courses and upserts them as rows into the
   sync never overwrites it once you've set it. It only adds new deadlines
   and archives rows once the assignment is actually completed on Canvas or
   its due date has passed.
-- A "Last synced: ..." line at the top of the page updates every run.
+- A bold "Last synced" heading at the top of the page updates every run —
+  green background on success, red on failure (with a short error message),
+  so you can tell at a glance whether today's sync actually worked.
 - Two views ship with the database: **All Deadlines** (table, sorted by due
   date — click any column to sort/filter further) and **Todo Board** (board,
   grouped by Status). Clicking a course tag on any row filters the current
@@ -101,3 +103,9 @@ Then check the Notion page updated.
   nothing to do. If you ever recreate the database from scratch, note that
   Notion's plain API can't create views; you'd add one manually via
   **+ Add view → Board → Group by Status**.
+- **Canvas ID column**: hidden from both views but still in the schema —
+  it's how the script matches a Notion row to a Canvas assignment across
+  runs so it updates in place instead of creating duplicates. Don't delete
+  it or the sync will start duplicating rows.
+- **Points was removed** as a property entirely (not just hidden) since it
+  wasn't needed.

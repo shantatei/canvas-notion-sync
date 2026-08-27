@@ -269,26 +269,65 @@ def chunk_text(text, limit=1900):
     return blocks
 
 
-def build_announcement_properties(item):
+def title_rich_text(text, struck):
+    """A title rich-text run with strikethrough on/off. Notion renders a
+    struck-through title inline in every view (table, board, etc.) with no
+    per-view configuration needed."""
+    return [{
+        "type": "text",
+        "text": {"content": text},
+        "annotations": {
+            "bold": False, "italic": False, "underline": False, "code": False,
+            "strikethrough": struck, "color": "default",
+        },
+    }]
+
+
+def build_announcement_properties(item, struck):
     return {
-        "Name": {"title": [{"text": {"content": item["title"]}}]},
+        "Name": {"title": title_rich_text(item["title"], struck)},
         "Course": {"select": {"name": item["course"]}},
         "Posted": {"date": {"start": item["date"]}},
         "Canvas ID": {"number": item["canvas_id"]},
     }
 
 
+def fetch_existing_announcement_rows():
+    """Returns {canvas_id: {"page_id": ..., "read": bool}}."""
+    rows = {}
+    cursor = None
+    while True:
+        body = {"page_size": 100}
+        if cursor:
+            body["start_cursor"] = cursor
+        data = notion_request("POST", f"/data_sources/{NOTION_ANNOUNCEMENTS_DATA_SOURCE_ID}/query", json=body)
+        for page in data["results"]:
+            props = page["properties"]
+            cid_prop = props.get("Canvas ID", {})
+            cid = cid_prop.get("number")
+            if cid is not None:
+                rows[int(cid)] = {
+                    "page_id": page["id"],
+                    "read": bool(props.get("Read", {}).get("checkbox")),
+                }
+        if not data.get("has_more"):
+            break
+        cursor = data["next_cursor"]
+    return rows
+
+
 def sync_announcements(announcements):
-    existing = fetch_existing_rows(NOTION_ANNOUNCEMENTS_DATA_SOURCE_ID)
+    existing = fetch_existing_announcement_rows()
 
     created = updated = 0
 
     for item in announcements:
         cid = item["canvas_id"]
         if cid in existing:
+            row = existing[cid]
             notion_request(
-                "PATCH", f"/pages/{existing[cid]}",
-                json={"properties": build_announcement_properties(item)},
+                "PATCH", f"/pages/{row['page_id']}",
+                json={"properties": build_announcement_properties(item, struck=row["read"])},
             )
             updated += 1
         else:
@@ -300,7 +339,7 @@ def sync_announcements(announcements):
                 "POST", "/pages",
                 json={
                     "parent": {"type": "data_source_id", "data_source_id": NOTION_ANNOUNCEMENTS_DATA_SOURCE_ID},
-                    "properties": {**build_announcement_properties(item), "Read": {"checkbox": False}},
+                    "properties": {**build_announcement_properties(item, struck=False), "Read": {"checkbox": False}},
                     "children": children,
                 },
             )

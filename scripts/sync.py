@@ -188,6 +188,8 @@ def build_blocks(deadlines, now):
         day_str = due_dt.strftime("%a, %-d %b")
         time_str = due_dt.strftime("%-I:%M %p")
         pts = d["points"]
+        if pts is not None and pts == int(pts):
+            pts = int(pts)
         pts_str = "" if pts is None else (f"{pts} pt" if pts == 1 else f"{pts} pts")
         u = urgency_color(d["date"], now)
         c = course_color(d["course"])

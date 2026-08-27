@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
-"""Daily Canvas -> Notion deadline sync.
+"""Daily Canvas -> Notion deadline + announcement sync.
 
-Pulls outstanding (not submitted/graded, not yet due) assignments from a
-fixed list of Canvas courses and upserts them into a Notion database as
-rows, so the user can sort/filter/group them natively in Notion and track
-progress with a Status property that this script never overwrites.
+Deadlines: pulls outstanding (not submitted/graded, not yet due) assignments
+from a fixed list of Canvas courses and upserts them into a "Deadlines"
+Notion database, tracked with a Status property this script never
+overwrites once you've set it.
+
+Announcements: pulls every announcement from the same courses into an
+"Announcements" Notion database, with a "Read" checkbox this script never
+overwrites once you've ticked it.
 
 The "Last synced" heading at the top of the page always reflects the
 outcome of the most recent run: green on success, red if anything failed.
 
 Required environment variables:
-    CANVAS_URL            e.g. https://canvas.nus.edu.sg
-    CANVAS_TOKEN          Canvas API access token
-    NOTION_TOKEN          Notion internal integration token
-    NOTION_PAGE_ID        The "NUS Deadlines" page ID (holds the "Last synced" heading)
-    NOTION_DATA_SOURCE_ID The "Deadlines" database's data source ID
+    CANVAS_URL                          e.g. https://canvas.nus.edu.sg
+    CANVAS_TOKEN                        Canvas API access token
+    NOTION_TOKEN                        Notion internal integration token
+    NOTION_PAGE_ID                      The "NUS Deadlines" page ID (holds the "Last synced" heading)
+    NOTION_DATA_SOURCE_ID               The "Deadlines" database's data source ID
+    NOTION_ANNOUNCEMENTS_DATA_SOURCE_ID The "Announcements" database's data source ID
 """
 import os
+import re
 import sys
+import html
 import time
 import datetime
 import traceback
@@ -28,6 +35,7 @@ CANVAS_TOKEN = os.environ["CANVAS_TOKEN"]
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 NOTION_PAGE_ID = os.environ["NOTION_PAGE_ID"]
 NOTION_DATA_SOURCE_ID = os.environ["NOTION_DATA_SOURCE_ID"]
+NOTION_ANNOUNCEMENTS_DATA_SOURCE_ID = os.environ["NOTION_ANNOUNCEMENTS_DATA_SOURCE_ID"]
 
 NOTION_VERSION = "2025-09-03"  # multi-source database API
 
@@ -46,13 +54,16 @@ COURSES = {
     40629: "THE1002",
 }
 
-# Default Status option name for newly-created rows. Notion auto-named the
-# "to do" group option "Not started" when the Status property was created;
-# renaming it via the API isn't supported, so this must match that exactly.
+# Default Status option name for newly-created deadline rows. Notion
+# auto-named the "to do" group option "Not started" when the Status
+# property was created; renaming it via the API isn't supported, so this
+# must match that exactly.
 DEFAULT_STATUS = "Not started"
 
 SGT = datetime.timezone(datetime.timedelta(hours=8))
 
+
+# ---------------------------------------------------------------- Canvas ---
 
 def canvas_get(path, params=None):
     url = f"{CANVAS_URL}{path}"
@@ -106,6 +117,40 @@ def fetch_deadlines(now):
     return deadlines
 
 
+def strip_html(s):
+    if not s:
+        return ""
+    s = re.sub(r'(?i)</p>|<br\s*/?>', '\n', s)
+    s = re.sub(r'(?i)<li[^>]*>', '• ', s)
+    s = re.sub(r'(?i)</li>', '\n', s)
+    s = re.sub(r'<[^>]+>', '', s)
+    s = html.unescape(s)
+    s = re.sub(r'[ \t]+', ' ', s)
+    s = re.sub(r'\n\s*\n+', '\n\n', s)
+    return s.strip()
+
+
+def fetch_announcements():
+    announcements = []
+    for course_id, code in COURSES.items():
+        topics = canvas_get(
+            f"/api/v1/courses/{course_id}/discussion_topics",
+            params={"only_announcements": "true", "per_page": 100},
+        )
+        for t in topics:
+            date = t.get("posted_at") or t.get("delayed_post_at") or t.get("created_at")
+            if not date or str(date).startswith("0001-01-01"):
+                continue
+            announcements.append({
+                "canvas_id": t["id"],
+                "course": code,
+                "title": t.get("title") or "Untitled",
+                "date": date,
+                "text": strip_html(t.get("message", "")),
+            })
+    return announcements
+
+
 def urgency_label(due_iso, now):
     due = datetime.datetime.fromisoformat(due_iso.replace("Z", "+00:00"))
     diff_days = (due - now).total_seconds() / 86400
@@ -115,6 +160,8 @@ def urgency_label(due_iso, now):
         return "This Week"
     return "Upcoming"
 
+
+# ---------------------------------------------------------------- Notion ---
 
 def notion_request(method, path, **kwargs):
     headers = {
@@ -130,7 +177,7 @@ def notion_request(method, path, **kwargs):
     return resp.json() if resp.content else {}
 
 
-def fetch_existing_rows():
+def fetch_existing_rows(data_source_id):
     """Returns {canvas_id: notion_page_id} for all non-archived rows."""
     rows = {}
     cursor = None
@@ -138,7 +185,7 @@ def fetch_existing_rows():
         body = {"page_size": 100}
         if cursor:
             body["start_cursor"] = cursor
-        data = notion_request("POST", f"/data_sources/{NOTION_DATA_SOURCE_ID}/query", json=body)
+        data = notion_request("POST", f"/data_sources/{data_source_id}/query", json=body)
         for page in data["results"]:
             cid_prop = page["properties"].get("Canvas ID", {})
             cid = cid_prop.get("number")
@@ -150,7 +197,9 @@ def fetch_existing_rows():
     return rows
 
 
-def build_properties(item, now, include_status):
+# ------------------------------------------------------------- Deadlines ---
+
+def build_deadline_properties(item, now, include_status):
     props = {
         "Name": {"title": [{"text": {"content": item["title"]}}]},
         "Course": {"select": {"name": item["course"]}},
@@ -163,8 +212,8 @@ def build_properties(item, now, include_status):
     return props
 
 
-def sync_rows(deadlines, now):
-    existing = fetch_existing_rows()
+def sync_deadlines(deadlines, now):
+    existing = fetch_existing_rows(NOTION_DATA_SOURCE_ID)
     target_ids = {d["canvas_id"] for d in deadlines}
 
     created = updated = archived = 0
@@ -174,7 +223,7 @@ def sync_rows(deadlines, now):
         if cid in existing:
             notion_request(
                 "PATCH", f"/pages/{existing[cid]}",
-                json={"properties": build_properties(item, now, include_status=False)},
+                json={"properties": build_deadline_properties(item, now, include_status=False)},
             )
             updated += 1
         else:
@@ -182,7 +231,7 @@ def sync_rows(deadlines, now):
                 "POST", "/pages",
                 json={
                     "parent": {"type": "data_source_id", "data_source_id": NOTION_DATA_SOURCE_ID},
-                    "properties": build_properties(item, now, include_status=True),
+                    "properties": build_deadline_properties(item, now, include_status=True),
                 },
             )
             created += 1
@@ -194,6 +243,73 @@ def sync_rows(deadlines, now):
 
     return created, updated, archived
 
+
+# --------------------------------------------------------- Announcements ---
+
+def chunk_text(text, limit=1900):
+    """Split into pieces that each fit within Notion's 2000-char rich text
+    limit, breaking on paragraph boundaries where possible."""
+    if not text:
+        return []
+    paras = text.split("\n\n")
+    blocks = []
+    buf = ""
+    for p in paras:
+        if len(buf) + len(p) + 2 <= limit:
+            buf = f"{buf}\n\n{p}" if buf else p
+        else:
+            if buf:
+                blocks.append(buf)
+            while len(p) > limit:
+                blocks.append(p[:limit])
+                p = p[limit:]
+            buf = p
+    if buf:
+        blocks.append(buf)
+    return blocks
+
+
+def build_announcement_properties(item):
+    return {
+        "Name": {"title": [{"text": {"content": item["title"]}}]},
+        "Course": {"select": {"name": item["course"]}},
+        "Posted": {"date": {"start": item["date"]}},
+        "Canvas ID": {"number": item["canvas_id"]},
+    }
+
+
+def sync_announcements(announcements):
+    existing = fetch_existing_rows(NOTION_ANNOUNCEMENTS_DATA_SOURCE_ID)
+
+    created = updated = 0
+
+    for item in announcements:
+        cid = item["canvas_id"]
+        if cid in existing:
+            notion_request(
+                "PATCH", f"/pages/{existing[cid]}",
+                json={"properties": build_announcement_properties(item)},
+            )
+            updated += 1
+        else:
+            children = [
+                {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": chunk}}]}}
+                for chunk in chunk_text(item["text"])
+            ]
+            notion_request(
+                "POST", "/pages",
+                json={
+                    "parent": {"type": "data_source_id", "data_source_id": NOTION_ANNOUNCEMENTS_DATA_SOURCE_ID},
+                    "properties": {**build_announcement_properties(item), "Read": {"checkbox": False}},
+                    "children": children,
+                },
+            )
+            created += 1
+
+    return created, updated
+
+
+# ----------------------------------------------------------- Status head ---
 
 def set_status_heading(now, success, detail):
     """Find the heading_3 "Last synced" block at the top of the page and
@@ -209,6 +325,7 @@ def set_status_heading(now, success, detail):
 
     data = notion_request("GET", f"/blocks/{NOTION_PAGE_ID}/children", params={"page_size": 50})
     target_block_id = None
+    target_type = None
     for block in data["results"]:
         btype = block["type"]
         if btype not in ("heading_1", "heading_2", "heading_3", "paragraph"):
@@ -224,9 +341,8 @@ def set_status_heading(now, success, detail):
     if target_block_id and target_type == "heading_3":
         notion_request("PATCH", f"/blocks/{target_block_id}", json=body)
     elif target_block_id:
-        # Block exists but isn't a heading_3 (e.g. leftover paragraph from an
-        # older version of this script) - block type can't be changed via
-        # PATCH, so replace it: delete then insert fresh at the top.
+        # Block exists but isn't a heading_3 - block type can't be changed
+        # via PATCH, so replace it: delete then insert fresh at the top.
         notion_request("DELETE", f"/blocks/{target_block_id}")
         notion_request(
             "PATCH", f"/blocks/{NOTION_PAGE_ID}/children",
@@ -244,13 +360,17 @@ def main():
     try:
         deadlines = fetch_deadlines(now)
         print(f"{len(deadlines)} outstanding deadlines found", file=sys.stderr)
+        d_created, d_updated, d_archived = sync_deadlines(deadlines, now)
 
-        created, updated, archived = sync_rows(deadlines, now)
+        announcements = fetch_announcements()
+        print(f"{len(announcements)} announcements found", file=sys.stderr)
+        a_created, a_updated = sync_announcements(announcements)
 
         soon = [d for d in deadlines if urgency_label(d["date"], now) != "Upcoming"]
         print(
-            f"Synced: {created} new, {updated} updated, {archived} archived (done/overdue). "
-            f"{len(deadlines)} outstanding total, {len(soon)} due within 3 days."
+            f"Deadlines: {d_created} new, {d_updated} updated, {d_archived} archived (done/overdue). "
+            f"{len(deadlines)} outstanding total, {len(soon)} due within 3 days.\n"
+            f"Announcements: {a_created} new, {a_updated} updated. {len(announcements)} total."
         )
     except Exception as e:
         traceback.print_exc()

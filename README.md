@@ -20,6 +20,16 @@ due) assignments from your Canvas courses and upserts them as rows into the
   grouped by Status). Clicking a course tag on any row filters the current
   view to that course — standard Notion behavior, no extra setup.
 
+It also upserts every announcement from those courses into an
+**Announcements** database further down the same page:
+
+- **Course**: colored select tag, same fixed colors as the Deadlines database
+- **Read**: a checkbox you control by hand — the sync never touches it once
+  you've ticked it. Announcements are never removed, just added to.
+- Opening an announcement's row shows its full text (synced in as the page
+  body when first created).
+- One view, **All Announcements**, sorted newest-first.
+
 ## One-time setup
 
 ### 1. Push this repo to GitHub
@@ -62,11 +72,13 @@ gh secret set CANVAS_TOKEN
 gh secret set NOTION_TOKEN
 gh secret set NOTION_PAGE_ID --body "3c9a07227bd281329da3e85885f07a60"
 gh secret set NOTION_DATA_SOURCE_ID --body "4a1110ba-2abd-4109-9bd4-c6edfe550628"
+gh secret set NOTION_ANNOUNCEMENTS_DATA_SOURCE_ID --body "4dc17a4f-1d8a-4807-ac61-edb5c1fd9419"
 ```
 
-`NOTION_DATA_SOURCE_ID` identifies the **Deadlines** database (not the page) —
-it's the collection ID shown when you fetch the database, not a credential,
-so it's fine to store the same way as `NOTION_PAGE_ID`.
+`NOTION_DATA_SOURCE_ID` and `NOTION_ANNOUNCEMENTS_DATA_SOURCE_ID` identify the
+two databases (not the page) — they're collection IDs shown when you fetch
+each database, not credentials, so it's fine to store them the same way as
+`NOTION_PAGE_ID`.
 
 (Omitting `--body` will prompt you to paste the value interactively, which
 keeps it out of shell history.)
@@ -109,3 +121,12 @@ Then check the Notion page updated.
   it or the sync will start duplicating rows.
 - **Points was removed** as a property entirely (not just hidden) since it
   wasn't needed.
+- **"Default view"**: Notion auto-creates one plain table view whenever a
+  database is created, and the API has no way to delete a view — only the
+  Notion UI can. It's reconfigured to hide Canvas ID and match the other
+  views, but if you want it gone entirely: open its tab → **···** → **Delete
+  view**. Same applies to the Announcements database.
+- **Very long announcements**: text is split across multiple paragraph
+  blocks at creation time (Notion limits a single rich-text run to 2000
+  characters) — nothing to maintain, just noting why a long announcement's
+  body is several blocks instead of one.

@@ -192,7 +192,8 @@ def sync_rows(deadlines, now):
 
 
 def update_last_synced(now):
-    label = f"Last synced: {now.strftime('%a, %-d %b %Y, %-I:%M %p')} UTC"
+    sgt = now.astimezone(datetime.timezone(datetime.timedelta(hours=8)))
+    label = f"Last synced: {sgt.strftime('%a, %-d %b %Y, %-I:%M %p')} SGT"
     data = notion_request("GET", f"/blocks/{NOTION_PAGE_ID}/children", params={"page_size": 50})
     target_block_id = None
     for block in data["results"]:

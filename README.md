@@ -179,10 +179,18 @@ databases.
 
 ### 9. Adjust the schedule (optional)
 
-`.github/workflows/daily-sync.yml` runs at `0 0 * * *` (00:00 UTC), which
-is 08:00 in Singapore (no DST there, so it never drifts). GitHub Actions
+`.github/workflows/daily-sync.yml` runs at `7 0 * * *` (00:07 UTC), which
+is 08:07 in Singapore (no DST there, so it never drifts). GitHub Actions
 cron is always UTC — convert your own timezone's desired run time to UTC
 and edit that line.
+
+**Avoid exact hour marks (`:00`) when picking your own time** — especially
+midnight UTC. GitHub's scheduler queue is most congested right on the hour,
+and midnight UTC is the single most popular "once a day" cron time on all
+of GitHub, since it's every timezone's default. Runs scheduled there can be
+delayed or silently dropped. Pick a few minutes off the hour instead (this
+repo defaults to `:07`) — it costs nothing and meaningfully reduces that
+risk.
 
 ---
 

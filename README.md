@@ -179,18 +179,30 @@ databases.
 
 ### 9. Adjust the schedule (optional)
 
-`.github/workflows/daily-sync.yml` runs at `7 0 * * *` (00:07 UTC), which
-is 08:07 in Singapore (no DST there, so it never drifts). GitHub Actions
+`.github/workflows/daily-sync.yml` runs at `0 0 * * *` (00:00 UTC), which
+is 08:00 in Singapore (no DST there, so it never drifts). GitHub Actions
 cron is always UTC — convert your own timezone's desired run time to UTC
 and edit that line.
 
-**Avoid exact hour marks (`:00`) when picking your own time** — especially
-midnight UTC. GitHub's scheduler queue is most congested right on the hour,
-and midnight UTC is the single most popular "once a day" cron time on all
-of GitHub, since it's every timezone's default. Runs scheduled there can be
-delayed or silently dropped. Pick a few minutes off the hour instead (this
-repo defaults to `:07`) — it costs nothing and meaningfully reduces that
-risk.
+**A known reliability caveat**: scheduled GitHub Actions workflows are not
+guaranteed to fire exactly on time, and — based on direct observation on
+this repo — a *brand-new* scheduled workflow can fail to fire at all for
+its first several scheduled opportunities (spanning multiple days), even
+with a completely valid config, before GitHub's scheduler "picks it up"
+reliably. There's nothing to configure around this; it's a platform
+behavior, not a bug in this repo. GitHub also generally recommends against
+scheduling exactly on the hour (`:00`), especially midnight UTC — the
+single most popular "once a day" cron time on all of GitHub — since that's
+when the scheduler queue is busiest and delays are most likely. If your
+scheduled runs still aren't firing after a few days, either nudge the
+minute off `:00` (e.g. `7 0 * * *`) or, as a more reliable fallback, trigger
+this workflow from an external scheduler instead of GitHub's own `schedule`
+trigger: point a free cron service (e.g. cron-job.org, or a scheduled job
+on any machine you control) at
+`POST https://api.github.com/repos/<you>/<repo>/actions/workflows/daily-sync.yml/dispatches`
+with a GitHub personal access token and `{"ref":"main"}` as the body —
+this uses `workflow_dispatch`, which has fired reliably every time in
+testing, rather than GitHub's own internal `schedule` trigger.
 
 ---
 

@@ -2,11 +2,8 @@ name: Daily Canvas -> Notion sync
 
 on:
   schedule:
-    # 00:07 UTC = 08:07 Singapore time (no DST in SGT, so this stays fixed).
-    # Deliberately NOT on the hour: GitHub's scheduler is most congested at
-    # exact hour marks (worst of all: midnight UTC, the most popular "once
-    # a day" cron time on all of GitHub) and can delay or drop runs there.
-    - cron: "7 0 * * *"
+    # 00:00 UTC = 08:00 Singapore time (no DST in SGT, so this stays fixed).
+    - cron: "0 0 * * *"
   workflow_dispatch: {}
 
 jobs:

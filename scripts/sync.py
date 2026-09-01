@@ -49,7 +49,8 @@ COURSES = {
     99079: "HLH001",
     97325: "IS1128",
     97359: "MA1301",
-    91713: "OTH391",
+    # 91713: "OTH391" removed - a placement/diagnostic-test course (QET1/DET1/EPT)
+    # that concluded and access was revoked; every request to it now 403s.
     40630: "THE1001",
     40629: "THE1002",
 }

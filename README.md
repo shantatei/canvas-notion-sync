@@ -52,14 +52,17 @@ Each run:
 - **Urgency** — colored tag: red "Due Soon" (≤1 day), yellow "This Week" (≤3 days), green "Upcoming" (>3 days)
 - **Day** — the day of the week, computed live from the due date
 - **Status** — a to-do / in-progress / done property that's entirely yours: the sync never overwrites it once you've set it, and only removes a row once that assignment is actually done on Canvas or its due date has passed
-- **Table view** (sorted by due date, sort/filter any column) and a **Board view** grouped by Status for a Kanban-style workflow — drag a card between columns to update its status
+- **Pinned** — a checkbox that floats an item to the top of both views, regardless of due date. Entirely yours; the sync never touches it
+- **Exam** — auto-flagged once, at creation, for anything matching a major-exam keyword (Midterm/Final/PE1/PE2/etc). Yours to correct afterward if the heuristic gets one wrong — the sync won't flip it back
+- **Table view** (sorted pinned-first then by due date; sort/filter any column), a **Board view** grouped by Status for a Kanban-style workflow — drag a card between columns to update its status — and a **🎯 Major Exams** board (filtered to `Exam`, grouped by Status)
 
 **Announcements** database
 - **Course** tag, same colors as Deadlines
 - **Read** checkbox — yours to control; once ticked, the title gets a strikethrough on the next sync
+- **Pinned** checkbox — keeps an announcement visible in the dedicated Pinned view even after it's marked read
 - Full announcement text saved as the page body, click in to read
 - Nothing is ever removed, only added to
-- **All Announcements** (newest first) and **Unread**-only views
+- **All Announcements** (pinned-first, then newest-first), **Unread**-only, and **📌 Pinned** views
 
 ---
 
@@ -92,9 +95,11 @@ You're building this by hand, once — the Notion API can create database *rows*
    | Urgency | Select | Three options, names must match exactly: `Due Soon` (red), `This Week` (yellow), `Upcoming` (green) |
    | Day | Formula | `formatDate(prop("Due Date"), "dddd")` — shows the weekday, e.g. "Monday" |
    | Status | Status | Notion auto-creates 3 default groups — note whatever it names the "to-do" option (often "Not started"), you'll need it in step 6 |
+   | Pinned | Checkbox | Yours to control by hand — the sync never touches it |
+   | Exam | Checkbox | Auto-flagged once at creation for major exams (keyword match) — yours to correct afterward |
    | Canvas ID | Number | Leave empty. Used internally to match rows across syncs — don't delete it once running |
 
-3. Add a **Board view**: **+ Add view → Board → Group by → Status**.
+3. Add a **Board view**: **+ Add view → Board → Group by → Status**. Optionally also add a filtered exam board: **+ Add view → Board**, filter `Exam` **is checked**, group by `Status`.
 4. In the same page, add a second database named **Announcements**:
 
    | Property | Type | Notes |
@@ -103,9 +108,10 @@ You're building this by hand, once — the Notion API can create database *rows*
    | Course | Select | Same options as above |
    | Posted | Date | |
    | Read | Checkbox | |
+   | Pinned | Checkbox | Yours to control — keeps an item visible in the Pinned view even after it's read |
    | Canvas ID | Number | Same purpose as above — leave empty |
 
-5. Add an **Unread** view: **+ Add view → Table**, filter `Read` **is not checked**, sort by `Posted` descending.
+5. Add an **Unread** view: **+ Add view → Table**, filter `Read` **is not checked**, sort by `Posted` descending. Optionally add a **Pinned** view too: filter `Pinned` **is checked** (no `Read` filter, so it stays visible either way).
 
 ### 3. Get a Canvas API token
 
@@ -201,6 +207,8 @@ The built-in `schedule:` trigger can stay in the workflow file as a harmless sec
 - **Adding/recreating views** — Notion's plain API can't create or delete views; that's UI-only. Re-add the Board/Unread views manually if you ever rebuild a database from scratch.
 - **Canvas ID columns** — present but hidden in every view. They're how the script matches a Notion row to a Canvas item across runs. Don't delete them, or the sync will start duplicating rows.
 - **Long announcements** — split across multiple paragraph blocks at creation time (Notion caps a single rich-text run at 2000 characters). Nothing to maintain.
+- **Exam keyword heuristic** — `EXAM_KEYWORDS` in `scripts/sync.py` (currently: midterm, final(s), practical exam, PE1-9, exam). It's only checked once per item, at creation, so a false positive/negative is a one-time manual fix in Notion, not a recurring annoyance.
+- **Pinned properties** (Deadlines and Announcements) — plain user-controlled checkboxes, same "sync never touches it" treatment as Status/Read. Add them to a database schema exactly like any other property if rebuilding from scratch.
 
 ## Known limitations / troubleshooting
 

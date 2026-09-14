@@ -4,7 +4,10 @@
 Deadlines: pulls outstanding (not submitted/graded, not yet due) assignments
 from a fixed list of Canvas courses and upserts them into a "Deadlines"
 Notion database, tracked with a Status property this script never
-overwrites once you've set it.
+overwrites once you've set it. New rows are also auto-classified as a
+major "Exam" (Midterm/Final/PE1/PE2/etc, by keyword match on the title)
+once, at creation - that flag is yours to correct afterward and the sync
+will never touch it again.
 
 Announcements: pulls every announcement from the same courses into an
 "Announcements" Notion database, with a "Read" checkbox this script never
@@ -162,6 +165,20 @@ def urgency_label(due_iso, now):
     return "Upcoming"
 
 
+# Keyword heuristic for the "Exam" flag - major/proctored exams only, not
+# the many recurring weekly quizzes most courses also have. Checked only
+# once, when a row is first created (see build_deadline_properties) - after
+# that it's yours to correct by hand in Notion, and the sync will never
+# flip it back.
+EXAM_KEYWORDS = re.compile(
+    r'\b(midterm|final|finals|practical exam|\bpe\d\b|exam)\b', re.IGNORECASE
+)
+
+
+def is_exam_title(title):
+    return bool(EXAM_KEYWORDS.search(title))
+
+
 # ---------------------------------------------------------------- Notion ---
 
 def notion_request(method, path, **kwargs):
@@ -210,6 +227,7 @@ def build_deadline_properties(item, now, include_status):
     }
     if include_status:
         props["Status"] = {"status": {"name": DEFAULT_STATUS}}
+        props["Exam"] = {"checkbox": is_exam_title(item["title"])}
     return props
 
 

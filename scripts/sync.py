@@ -9,7 +9,8 @@ major "Exam" (Midterm/Final/PE1/PE2/etc, by keyword match on the title)
 once, at creation - that flag is yours to correct afterward and the sync
 will never touch it again. "Start" (the left edge of each bar on the
 Weekly timeline) is filled from Canvas's unlock date when a row is created
-or found empty, and is never overwritten once set.
+or found empty, and is never overwritten once set. "Type" (Critical /
+Weighted / Own time) is classified the same way: once, then yours.
 
 Announcements: pulls every announcement from the same courses into an
 "Announcements" Notion database, with a "Read" checkbox this script never
@@ -114,18 +115,21 @@ def fetch_deadlines(now):
             due_dt = datetime.datetime.fromisoformat(due.replace("Z", "+00:00"))
             if due_dt < now:
                 continue
-            start = due
+            start_dt = due_dt
             unlock = a.get("unlock_at")
             if unlock and not str(unlock).startswith("0001-01-01"):
                 unlock_dt = datetime.datetime.fromisoformat(unlock.replace("Z", "+00:00"))
                 if unlock_dt < due_dt:
-                    start = unlock
+                    start_dt = unlock_dt
+            # Keep every bar at least MIN_BAR_DAYS long so its label fits.
+            start_dt = min(start_dt, due_dt - datetime.timedelta(days=MIN_BAR_DAYS))
             deadlines.append({
                 "canvas_id": a["id"],
                 "course": code,
                 "title": a.get("name") or "Untitled",
                 "date": due,
-                "start": start,
+                "start": start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "points": a.get("points_possible") or 0,
             })
     return deadlines
 
@@ -188,6 +192,18 @@ def is_exam_title(title):
     return bool(EXAM_KEYWORDS.search(title))
 
 
+# Shortest a timeline bar is allowed to be (days before the due date).
+MIN_BAR_DAYS = 3
+
+
+def classify_type(is_exam, points):
+    """Critical = a major exam, Weighted = worth marks, Own time = the rest.
+    Set once (when a row is created or found empty); yours to change after."""
+    if is_exam:
+        return "Critical"
+    return "Weighted" if points and points > 0 else "Own time"
+
+
 # ---------------------------------------------------------------- Notion ---
 
 def notion_request(method, path, **kwargs):
@@ -205,7 +221,7 @@ def notion_request(method, path, **kwargs):
 
 
 def fetch_existing_rows(data_source_id):
-    """Returns {canvas_id: {"page_id": ..., "has_start": bool}} for all
+    """Returns {canvas_id: {"page_id", "has_start", "has_type", "exam"}} for all
     non-archived rows that carry a Canvas ID."""
     rows = {}
     cursor = None
@@ -218,9 +234,12 @@ def fetch_existing_rows(data_source_id):
             cid_prop = page["properties"].get("Canvas ID", {})
             cid = cid_prop.get("number")
             if cid is not None:
+                props = page["properties"]
                 rows[int(cid)] = {
                     "page_id": page["id"],
-                    "has_start": page["properties"].get("Start", {}).get("date") is not None,
+                    "has_start": props.get("Start", {}).get("date") is not None,
+                    "has_type": props.get("Type", {}).get("select") is not None,
+                    "exam": bool(props.get("Exam", {}).get("checkbox")),
                 }
         if not data.get("has_more"):
             break
@@ -240,8 +259,10 @@ def build_deadline_properties(item, now, include_status):
     }
     if include_status:
         props["Status"] = {"status": {"name": DEFAULT_STATUS}}
-        props["Exam"] = {"checkbox": is_exam_title(item["title"])}
+        exam = is_exam_title(item["title"])
+        props["Exam"] = {"checkbox": exam}
         props["Start"] = {"date": {"start": item["start"]}}
+        props["Type"] = {"select": {"name": classify_type(exam, item["points"])}}
     return props
 
 
@@ -258,6 +279,8 @@ def sync_deadlines(deadlines, now):
             props = build_deadline_properties(item, now, include_status=False)
             if not row["has_start"]:
                 props["Start"] = {"date": {"start": item["start"]}}
+            if not row["has_type"]:
+                props["Type"] = {"select": {"name": classify_type(row["exam"], item["points"])}}
             notion_request("PATCH", f"/pages/{row['page_id']}", json={"properties": props})
             updated += 1
         else:

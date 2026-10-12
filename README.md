@@ -56,7 +56,7 @@ Each run:
 - **Exam** — auto-flagged once, at creation, for anything matching a major-exam keyword (Midterm/Final/PE1/PE2/etc). Yours to correct afterward if the heuristic gets one wrong — the sync won't flip it back
 - **Start** — the left edge of each bar on the Weekly timeline. Filled from Canvas's unlock date when a row is created (bars are always at least 7 days long so their labels fit), and never overwritten once set. Drag only the **left** edge to plan when you'll start — the right edge is the real Canvas due date, and the sync resets it
 - **Type** — `Critical` (a major exam), `Weighted` (worth marks) or `Own time` (the rest). Classified once from Canvas, then yours to change
-- **Priority** — High / Medium / Low, entirely yours; the sync never sets or touches it
+- **Priority** — High / Medium / Low. New rows start at Medium; after that it's entirely yours and the sync never touches it
 - **Week** — NUS academic week (Week 01–13, Recess, Reading, Exams), computed live from the due date for the Weekly timeline's grouping
 - **📊 Weekly** timeline (bars from Start to Due Date, with a "today" line) and a **🗓️ Schedule** calendar, alongside the **Table view** (sorted pinned-first then by due date; sort/filter any column), a **Board view** grouped by Status for a Kanban-style workflow — drag a card between columns to update its status — and a **🎯 Major Exams** board (filtered to `Exam`, grouped by Status)
 

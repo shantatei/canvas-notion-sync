@@ -263,6 +263,7 @@ def build_deadline_properties(item, now, include_status):
         props["Exam"] = {"checkbox": exam}
         props["Start"] = {"date": {"start": item["start"]}}
         props["Type"] = {"select": {"name": classify_type(exam, item["points"])}}
+        props["Priority"] = {"select": {"name": "Medium"}}
     return props
 
 

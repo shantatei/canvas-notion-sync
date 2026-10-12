@@ -54,7 +54,9 @@ Each run:
 - **Status** — a to-do / in-progress / done property that's entirely yours: the sync never overwrites it once you've set it, and only removes a row once that assignment is actually done on Canvas or its due date has passed
 - **Pinned** — a checkbox that floats an item to the top of both views, regardless of due date. Entirely yours; the sync never touches it
 - **Exam** — auto-flagged once, at creation, for anything matching a major-exam keyword (Midterm/Final/PE1/PE2/etc). Yours to correct afterward if the heuristic gets one wrong — the sync won't flip it back
-- **Start** — the left edge of each bar on the Weekly timeline. Filled from Canvas's unlock date (or the due date when Canvas has none) when a row is created, and never overwritten once set — drag the bar to plan when you'll actually work on it
+- **Start** — the left edge of each bar on the Weekly timeline. Filled from Canvas's unlock date when a row is created (bars are always at least 3 days long so their labels fit), and never overwritten once set. Drag only the **left** edge to plan when you'll start — the right edge is the real Canvas due date, and the sync resets it
+- **Type** — `Critical` (a major exam), `Weighted` (worth marks) or `Own time` (the rest). Classified once from Canvas, then yours to change
+- **Priority** — High / Medium / Low, entirely yours; the sync never sets or touches it
 - **Week** — NUS academic week (Week 01–13, Recess, Reading, Exams), computed live from the due date for the Weekly timeline's grouping
 - **📊 Weekly** timeline (bars from Start to Due Date, with a "today" line) and a **🗓️ Schedule** calendar, alongside the **Table view** (sorted pinned-first then by due date; sort/filter any column), a **Board view** grouped by Status for a Kanban-style workflow — drag a card between columns to update its status — and a **🎯 Major Exams** board (filtered to `Exam`, grouped by Status)
 
@@ -99,6 +101,8 @@ You're building this by hand, once — the Notion API can create database *rows*
    | Status | Status | Notion auto-creates 3 default groups — note whatever it names the "to-do" option (often "Not started"), you'll need it in step 6 |
    | Start | Date | Left edge of the Weekly timeline bar. The sync fills it from Canvas's unlock date, only when empty |
    | Week | Formula | NUS academic week for grouping the timeline. Week 1 = 10 Aug 2026 (AY26/27 Sem 1) — edit the `parseDate("2026-08-10")` anchor and the recess/reading/exam cut-offs each semester. See formula below |
+   | Type | Select | Three options, names must match exactly: `Own time` (green), `Weighted` (orange), `Critical` (red). The sync fills it when empty |
+   | Priority | Select | `High` (red), `Medium` (yellow), `Low` (gray). Yours to set — the sync never touches it |
    | Pinned | Checkbox | Yours to control by hand — the sync never touches it |
    | Exam | Checkbox | Auto-flagged once at creation for major exams (keyword match) — yours to correct afterward |
    | Canvas ID | Number | Leave empty. Used internally to match rows across syncs — don't delete it once running |
@@ -213,6 +217,8 @@ The built-in `schedule:` trigger can stay in the workflow file as a harmless sec
 - **Long announcements** — split across multiple paragraph blocks at creation time (Notion caps a single rich-text run at 2000 characters). Nothing to maintain.
 - **Exam keyword heuristic** — `EXAM_KEYWORDS` in `scripts/sync.py` (currently: midterm, final(s), practical exam, PE1-9, exam). It's only checked once per item, at creation, so a false positive/negative is a one-time manual fix in Notion, not a recurring annoyance.
 - **Week formula** — `let(w, floor(dateBetween(prop("Due Date"), parseDate("2026-08-10"), "days") / 7) + 1, ifs(empty(prop("Due Date")), "No date", w < 1, "Pre-term", w < 7, "Week 0" + format(w), w == 7, "Week 06 · Recess", w < 10, "Week 0" + format(w - 1), w < 15, "Week " + format(w - 1), w == 15, "Week 14 · Reading", w < 18, "Week " + format(w - 1) + " · Exams", "Week 99 · After term"))`. Labels are zero-padded so grouping sorts chronologically. Update the anchor date each semester.
+- **Timeline bars & colours** — the API can't set a view's "Color by" or grouping, nor a Status option's colour. In the Weekly timeline set Color by → Status and Group → Week yourself, and recolour the Status options (Not started red, In progress yellow, Done green).
+- **Don't drag a bar's right edge** — on the timeline that edits `Due Date`, which the sync overwrites from Canvas on its next run.
 - **Pinned properties** (Deadlines and Announcements) — plain user-controlled checkboxes, same "sync never touches it" treatment as Status/Read. Add them to a database schema exactly like any other property if rebuilding from scratch.
 
 ## Known limitations / troubleshooting

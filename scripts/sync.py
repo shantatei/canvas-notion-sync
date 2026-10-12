@@ -193,7 +193,7 @@ def is_exam_title(title):
 
 
 # Shortest a timeline bar is allowed to be (days before the due date).
-MIN_BAR_DAYS = 3
+MIN_BAR_DAYS = 7
 
 
 def classify_type(is_exam, points):

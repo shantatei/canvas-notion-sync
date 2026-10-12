@@ -54,7 +54,7 @@ Each run:
 - **Status** — a to-do / in-progress / done property that's entirely yours: the sync never overwrites it once you've set it, and only removes a row once that assignment is actually done on Canvas or its due date has passed
 - **Pinned** — a checkbox that floats an item to the top of both views, regardless of due date. Entirely yours; the sync never touches it
 - **Exam** — auto-flagged once, at creation, for anything matching a major-exam keyword (Midterm/Final/PE1/PE2/etc). Yours to correct afterward if the heuristic gets one wrong — the sync won't flip it back
-- **Start** — the left edge of each bar on the Weekly timeline. Filled from Canvas's unlock date when a row is created (bars are always at least 3 days long so their labels fit), and never overwritten once set. Drag only the **left** edge to plan when you'll start — the right edge is the real Canvas due date, and the sync resets it
+- **Start** — the left edge of each bar on the Weekly timeline. Filled from Canvas's unlock date when a row is created (bars are always at least 7 days long so their labels fit), and never overwritten once set. Drag only the **left** edge to plan when you'll start — the right edge is the real Canvas due date, and the sync resets it
 - **Type** — `Critical` (a major exam), `Weighted` (worth marks) or `Own time` (the rest). Classified once from Canvas, then yours to change
 - **Priority** — High / Medium / Low, entirely yours; the sync never sets or touches it
 - **Week** — NUS academic week (Week 01–13, Recess, Reading, Exams), computed live from the due date for the Weekly timeline's grouping

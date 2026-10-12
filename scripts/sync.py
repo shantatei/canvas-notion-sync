@@ -7,7 +7,9 @@ Notion database, tracked with a Status property this script never
 overwrites once you've set it. New rows are also auto-classified as a
 major "Exam" (Midterm/Final/PE1/PE2/etc, by keyword match on the title)
 once, at creation - that flag is yours to correct afterward and the sync
-will never touch it again.
+will never touch it again. "Start" (the left edge of each bar on the
+Weekly timeline) is filled from Canvas's unlock date when a row is created
+or found empty, and is never overwritten once set.
 
 Announcements: pulls every announcement from the same courses into an
 "Announcements" Notion database, with a "Read" checkbox this script never
@@ -112,11 +114,18 @@ def fetch_deadlines(now):
             due_dt = datetime.datetime.fromisoformat(due.replace("Z", "+00:00"))
             if due_dt < now:
                 continue
+            start = due
+            unlock = a.get("unlock_at")
+            if unlock and not str(unlock).startswith("0001-01-01"):
+                unlock_dt = datetime.datetime.fromisoformat(unlock.replace("Z", "+00:00"))
+                if unlock_dt < due_dt:
+                    start = unlock
             deadlines.append({
                 "canvas_id": a["id"],
                 "course": code,
                 "title": a.get("name") or "Untitled",
                 "date": due,
+                "start": start,
             })
     return deadlines
 
@@ -196,7 +205,8 @@ def notion_request(method, path, **kwargs):
 
 
 def fetch_existing_rows(data_source_id):
-    """Returns {canvas_id: notion_page_id} for all non-archived rows."""
+    """Returns {canvas_id: {"page_id": ..., "has_start": bool}} for all
+    non-archived rows that carry a Canvas ID."""
     rows = {}
     cursor = None
     while True:
@@ -208,7 +218,10 @@ def fetch_existing_rows(data_source_id):
             cid_prop = page["properties"].get("Canvas ID", {})
             cid = cid_prop.get("number")
             if cid is not None:
-                rows[int(cid)] = page["id"]
+                rows[int(cid)] = {
+                    "page_id": page["id"],
+                    "has_start": page["properties"].get("Start", {}).get("date") is not None,
+                }
         if not data.get("has_more"):
             break
         cursor = data["next_cursor"]
@@ -228,6 +241,7 @@ def build_deadline_properties(item, now, include_status):
     if include_status:
         props["Status"] = {"status": {"name": DEFAULT_STATUS}}
         props["Exam"] = {"checkbox": is_exam_title(item["title"])}
+        props["Start"] = {"date": {"start": item["start"]}}
     return props
 
 
@@ -240,10 +254,11 @@ def sync_deadlines(deadlines, now):
     for item in deadlines:
         cid = item["canvas_id"]
         if cid in existing:
-            notion_request(
-                "PATCH", f"/pages/{existing[cid]}",
-                json={"properties": build_deadline_properties(item, now, include_status=False)},
-            )
+            row = existing[cid]
+            props = build_deadline_properties(item, now, include_status=False)
+            if not row["has_start"]:
+                props["Start"] = {"date": {"start": item["start"]}}
+            notion_request("PATCH", f"/pages/{row['page_id']}", json={"properties": props})
             updated += 1
         else:
             notion_request(
@@ -255,9 +270,9 @@ def sync_deadlines(deadlines, now):
             )
             created += 1
 
-    for cid, page_id in existing.items():
+    for cid, row in existing.items():
         if cid not in target_ids:
-            notion_request("PATCH", f"/pages/{page_id}", json={"archived": True})
+            notion_request("PATCH", f"/pages/{row['page_id']}", json={"archived": True})
             archived += 1
 
     return created, updated, archived
